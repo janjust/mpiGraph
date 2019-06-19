@@ -82,6 +82,7 @@ char VERS[] = "1.5";
 /* use gettimeofday() for timers */
 
 #include <sys/time.h>
+
 #define __TIME_START__    (gettimeofday(&g_timeval__start, &g_timezone))
 #define __TIME_END_SEND__ (gettimeofday(&g_timeval__end_send, &g_timezone))
 #define __TIME_END_RECV__ (gettimeofday(&g_timeval__end_recv, &g_timezone))
@@ -106,6 +107,7 @@ struct timezone g_timezone;
  * which leads to incorrect timing data including negative time periods
  */
 
+
 #define __TIME_START__    (g_timeval__start    = MPI_Wtime())
 #define __TIME_END_SEND__ (g_timeval__end_send = MPI_Wtime())
 #define __TIME_END_RECV__ (g_timeval__end_recv = MPI_Wtime())
@@ -115,6 +117,16 @@ double g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
 
 #endif /* of USE_GETTIMEOFDAY */
 
+#include <time.h>
+
+#define GET_TS() ({                         \
+    struct timespec ts;                     \
+    double ret = 0;                         \
+    clock_gettime(CLOCK_MONOTONIC, &ts);    \
+    ret = ts.tv_sec + 1E-9*ts.tv_nsec;      \
+    ret;                                    \
+}) 
+ 
 
 /* =============================================================
  * MAIN TIMING LOGIC
@@ -166,10 +178,24 @@ void code(int mypid, int nnodes, int size, int times, int window)
     /* run through 'times' iterations on a given ring */
     for (i=0; i<times; i++) {
       /* couple of synch's to make sure everyone is ready to go */
+      double start_my = GET_TS();
+      double end_my = 0.0;
+
       MPI_Barrier(MPI_COMM_WORLD);
+      end_my = GET_TS();
+      if (end_my - start_my > 0.1) {
+      printf (" B1, iter %d, %lfs\n", i, end_my - start_my);
+      }
+      
+      start_my = GET_TS();
       MPI_Barrier(MPI_COMM_WORLD);
+      end_my = GET_TS();
+      if (end_my -start_my > 0.1) {
+      printf (" B2, iter %d, %lfs\n", i, end_my - start_my);
+      }
 
       __TIME_START__;
+      start_my = GET_TS();
       k=-1;
       /* setup a window of irecvs from my partner who is distance steps to my left */
       for (w=0; w<window; w++) {
@@ -201,6 +227,10 @@ void code(int mypid, int nnodes, int size, int times, int window)
       }
       sendtimes[sendpid*times+i] = __TIME_USECS_SEND__ / (double) w;
       recvtimes[recvpid*times+i] = __TIME_USECS_RECV__ / (double) w;
+      end_my = GET_TS();
+      if (end_my -start_my > 0.1) {
+      printf ("E of Loop, iteration %d, %lf secs; send %.2lf usecs, recv %0.2lf usecs\n", i, end_my - start_my, __TIME_USECS_SEND__, __TIME_USECS_RECV__);
+      }
     } /* end times loop */
     /* bump up the distance for the next ring step */
     distance++;
